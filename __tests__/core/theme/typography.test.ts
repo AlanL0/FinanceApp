@@ -2,10 +2,10 @@ import { typography } from '../../../src/core/theme/typography';
 
 describe('Typography Scale', () => {
     it('should export font sizes from xs to xxxl', () => {
-        expect(typography.fontSize.xs).toBeLessThan(typography.fontsize.sm);
-        expect(typography.fontSize.sm).toBeLessThan(typography.fontsize.md);
-        expect(typography.fontSize.md).toBeLessThan(typography.fontsize.lg);
-        expect(typography.fontSize.lg).toBeLessThan(typography.fontsize.xl);
+        expect(typography.fontSize.xs).toBeLessThan(typography.fontSize.sm);
+        expect(typography.fontSize.sm).toBeLessThan(typography.fontSize.md);
+        expect(typography.fontSize.md).toBeLessThan(typography.fontSize.lg);
+        expect(typography.fontSize.lg).toBeLessThan(typography.fontSize.xl);
     });
 
     it('should export font weights', () => {

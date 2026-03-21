@@ -1,4 +1,4 @@
-import { theme } from '../../src/core/theme';
+import { theme } from '../../../src/core/theme';
 
 describe('Theme barrel export', () => {
     it('should export colors, typography, and spacing', () =>{
