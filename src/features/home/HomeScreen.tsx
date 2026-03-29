@@ -117,6 +117,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ui.bg,
   },
   content: {
+    paddingTop: 48,
     paddingBottom: 32,
   },
   heroCard: {

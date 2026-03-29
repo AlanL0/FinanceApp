@@ -3,6 +3,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import {View, Text, StyleSheet} from "react-native";
 import {colors} from "../core/theme/colors";
 import { HomeScreen } from '../features/home/HomeScreen';
+import { ProfileScreen } from '../features/profile/ProfileScreen';
 
 //Placeholder screens (replaced in later weeks)
 const PlaceHolderScreen = ({ name }: { name: string }) => (
@@ -10,10 +11,9 @@ const PlaceHolderScreen = ({ name }: { name: string }) => (
         <Text style={styles.text}>{name} Screen</Text>
     </View>
 );
-const SearchScreen  = () => <PlaceHolderScreen name="Search" />;
+const SearchScreen    = () => <PlaceHolderScreen name="Search" />;
 const PortfolioScreen = () => <PlaceHolderScreen name="Portfolio" />;
-const LearnScreen = () => <PlaceHolderScreen name="Learn" />;
-const ProfileScreen = () => <PlaceHolderScreen name="Profile" />;
+const LearnScreen     = () => <PlaceHolderScreen name="Learn" />;
 
 const Tab = createBottomTabNavigator();
 
