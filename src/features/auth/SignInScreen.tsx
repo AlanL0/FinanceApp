@@ -95,6 +95,7 @@ export const SignInScreen: React.FC = () => {
         <Pressable onPress={() => navigation.navigate('SignUp')}>
           <Text style={styles.link}>Don't have an account? Sign Up</Text>
         </Pressable>
+
       </View>
     </KeyboardAvoidingView>
   );
