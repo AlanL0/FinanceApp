@@ -14,9 +14,9 @@ interface ButtonProps {
 }
 
 const variantStyles: Record<Variant, ViewStyle> = {
-    primary: { backgroundColor: colors.teal},
-    secondary: {backgroundColor: colors.navy} ,
-    danger: {backgroundColor: colors.danger},
+    primary: { backgroundColor: colors.brand.teal},
+    secondary: {backgroundColor: colors.brand.navy} ,
+    danger: {backgroundColor: colors.semantic.negative},
 };
 
 export const Button = ({ label, onPress, variant = 'primary', testID }) => (

@@ -19,9 +19,9 @@ describe('Button component', () => {
         expect(onPress).toHaveBeenCalledTimes(1);
     });
 
-    if('should apply variant styles', () => {
-        const { getByText } = render(
-            <Button label="Sell" onPress={() => {}} variant="danger" />
+    it('should apply variant styles', () => {
+        const { getByTestId } = render(
+            <Button label="Sell" onPress={() => {}} variant="danger" testID="btn" />
         );
         expect(getByTestId('btn')).toBeTruthy();
     });
