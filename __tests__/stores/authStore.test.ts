@@ -6,12 +6,23 @@ jest.mock('expo-secure-store', () => ({
   deleteItemAsync: jest.fn(),
 }));
 
+jest.mock('expo-web-browser', () => ({
+  maybeCompleteAuthSession: jest.fn(),
+  openAuthSessionAsync: jest.fn(),
+}));
+
+jest.mock('expo-auth-session', () => ({
+  makeRedirectUri: jest.fn(() => 'financeapp://'),
+}));
+
 jest.mock('../../src/core/api/supabase', () => ({
   supabase: {
     auth: {
       getSession: jest.fn(),
       signUp: jest.fn(),
       signInWithPassword: jest.fn(),
+      signInWithOAuth: jest.fn(),
+      exchangeCodeForSession: jest.fn(),
       signOut: jest.fn(),
       onAuthStateChange: jest.fn(() => ({
         data: { subscription: { unsubscribe: jest.fn() } },
@@ -107,6 +118,48 @@ describe('authStore — signIn', () => {
     await act(async () => { response = await result.current.signIn('test@example.com', 'wrongpassword'); });
 
     expect(response.error).toBe('Invalid credentials');
+  });
+});
+
+describe('authStore — signInWithGoogle', () => {
+  it('returns null error when browser session succeeds', async () => {
+    const WebBrowser = require('expo-web-browser');
+    (mockAuth.signInWithOAuth as jest.Mock).mockResolvedValue({ data: { url: 'https://google.com/oauth' }, error: null });
+    (mockAuth.exchangeCodeForSession as jest.Mock).mockResolvedValue({ error: null });
+    (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({ type: 'success', url: 'financeapp://?code=abc' });
+
+    const { result } = renderHook(() => useAuthStore());
+    let response: { error: string | null } = { error: 'not set' };
+    await act(async () => { response = await result.current.signInWithGoogle(); });
+
+    expect(response.error).toBeNull();
+    expect(mockAuth.exchangeCodeForSession).toHaveBeenCalledWith('financeapp://?code=abc');
+  });
+
+  it('returns null error when user cancels browser', async () => {
+    const WebBrowser = require('expo-web-browser');
+    (mockAuth.signInWithOAuth as jest.Mock).mockResolvedValue({ data: { url: 'https://google.com/oauth' }, error: null });
+    (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValue({ type: 'cancel' });
+
+    const { result } = renderHook(() => useAuthStore());
+    let response: { error: string | null } = { error: 'not set' };
+    await act(async () => { response = await result.current.signInWithGoogle(); });
+
+    expect(response.error).toBeNull();
+    expect(mockAuth.exchangeCodeForSession).not.toHaveBeenCalled();
+  });
+
+  it('returns error when OAuth initiation fails', async () => {
+    (mockAuth.signInWithOAuth as jest.Mock).mockResolvedValue({
+      data: { url: null },
+      error: { message: 'Provider not enabled' },
+    });
+
+    const { result } = renderHook(() => useAuthStore());
+    let response: { error: string | null } = { error: null };
+    await act(async () => { response = await result.current.signInWithGoogle(); });
+
+    expect(response.error).toBe('Provider not enabled');
   });
 });
 

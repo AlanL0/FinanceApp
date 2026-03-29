@@ -22,6 +22,15 @@ jest.mock('@react-navigation/native', () => ({
   useNavigation: () => ({ navigate: mockNavigate }),
 }));
 
+jest.mock('expo-web-browser', () => ({
+  maybeCompleteAuthSession: jest.fn(),
+  openAuthSessionAsync: jest.fn(),
+}));
+
+jest.mock('expo-auth-session', () => ({
+  makeRedirectUri: jest.fn(() => 'financeapp://'),
+}));
+
 import { SignInScreen } from '../../../src/features/auth/SignInScreen';
 import { supabase } from '../../../src/core/api/supabase';
 
@@ -77,5 +86,10 @@ describe('SignInScreen', () => {
     const { getByText } = render(<SignInScreen />);
     fireEvent.press(getByText("Don't have an account? Sign Up"));
     expect(mockNavigate).toHaveBeenCalledWith('SignUp');
+  });
+
+  it('renders the Continue with Google button', () => {
+    const { getByText } = render(<SignInScreen />);
+    expect(getByText('Continue with Google')).toBeTruthy();
   });
 });

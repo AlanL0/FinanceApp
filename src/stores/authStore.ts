@@ -1,6 +1,10 @@
 import { create } from 'zustand';
+import * as WebBrowser from 'expo-web-browser';
+import { makeRedirectUri } from 'expo-auth-session';
 import { supabase } from '../core/api/supabase';
 import { Session, User } from '@supabase/supabase-js';
+
+WebBrowser.maybeCompleteAuthSession();
 
 interface AuthState {
   session: Session | null;
@@ -9,6 +13,7 @@ interface AuthState {
   initialized: boolean;
   signUp: (email: string, password: string) => Promise<{ error: string | null }>;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
+  signInWithGoogle: () => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   initialize: () => Promise<void>;
 }
@@ -44,6 +49,28 @@ export const useAuthStore = create<AuthState>((set) => ({
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     set({ loading: false });
     return { error: error?.message ?? null };
+  },
+
+  signInWithGoogle: async () => {
+    const redirectTo = makeRedirectUri({ scheme: 'financeapp' });
+
+    const { data, error } = await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: { redirectTo, skipBrowserRedirect: true },
+    });
+
+    if (error || !data.url) {
+      return { error: error?.message ?? 'Could not start Google sign in' };
+    }
+
+    const result = await WebBrowser.openAuthSessionAsync(data.url, redirectTo);
+
+    if (result.type === 'success') {
+      const { error: sessionError } = await supabase.auth.exchangeCodeForSession(result.url);
+      return { error: sessionError?.message ?? null };
+    }
+
+    return { error: null };
   },
 
   signOut: async () => {
