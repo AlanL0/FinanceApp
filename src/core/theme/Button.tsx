@@ -1,8 +1,8 @@
 import React from 'react';
-import {TouchableOpacity, Text, StyleSheet, ViewStyle, Touchable} from "react-native";
-import { colors } from './colors'
-import {typography} from "./typography";
-import { spacing } from "./spacing";
+import { TouchableOpacity, Text, StyleSheet, ViewStyle, TextStyle } from 'react-native';
+import { colors } from './colors';
+import { typography } from './typography';
+import { spacing } from './spacing';
 
 type Variant = 'primary' | 'secondary' | 'danger';
 
@@ -19,7 +19,7 @@ const variantStyles: Record<Variant, ViewStyle> = {
     danger: {backgroundColor: colors.semantic.negative},
 };
 
-export const Button = ({ label, onPress, variant = 'primary', testID }) => (
+export const Button = ({ label, onPress, variant = 'primary', testID }: ButtonProps) => (
     <TouchableOpacity
         style={[styles.base, variantStyles[variant]]}
         onPress={onPress}
@@ -39,7 +39,6 @@ const styles = StyleSheet.create({
     label: {
         color: '#FFFFFF',
         fontSize: typography.fontSize.md,
-        fontWeight: typography.fontWeight.semiBold,
+        fontWeight: typography.fontWeight.semiBold as TextStyle['fontWeight'],
     },
 });
-

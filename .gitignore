@@ -45,5 +45,5 @@ yarn-error.*
 .idea/
 
 CLAUDE.md
-CLAUDE_week2.md
+CLAUDE_*.md
 coverage/

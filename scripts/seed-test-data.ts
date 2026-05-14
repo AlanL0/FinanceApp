@@ -34,9 +34,9 @@ async function seed() {
     { user_id: userId, symbol: 'MSFT', shares: 8,    avg_cost_basis: 405.00 },
     { user_id: userId, symbol: 'VTI',  shares: 20,   avg_cost_basis: 245.00 },
     { user_id: userId, symbol: 'JNJ',  shares: 15,   avg_cost_basis: 158.20 },
-  ]);
+  ], { onConflict: 'user_id,symbol' });
   if (holdingsError) { console.error('Holdings error:', holdingsError.message); return; }
-  console.log('✓ Holdings seeded');
+  console.log('[ok] Holdings seeded');
 
   // Trades
   const { error: tradesError } = await supabase.from('trades').insert([
@@ -46,7 +46,7 @@ async function seed() {
     { user_id: userId, symbol: 'JNJ',  side: 'buy', order_type: 'market', shares: 15,  price: 158.20, total: 2373.00 },
   ]);
   if (tradesError) { console.error('Trades error:', tradesError.message); return; }
-  console.log('✓ Trades seeded');
+  console.log('[ok] Trades seeded');
 
   // Watchlist
   const { error: watchlistError } = await supabase.from('watchlist').upsert([
@@ -54,9 +54,9 @@ async function seed() {
     { user_id: userId, symbol: 'MSFT' },
     { user_id: userId, symbol: 'SPY'  },
     { user_id: userId, symbol: 'QQQ'  },
-  ]);
+  ], { onConflict: 'user_id,symbol' });
   if (watchlistError) { console.error('Watchlist error:', watchlistError.message); return; }
-  console.log('✓ Watchlist seeded');
+  console.log('[ok] Watchlist seeded');
 
   // Update virtual balance to reflect purchases
   const spent = 9125 + 3240 + 4900 + 2373;
@@ -65,7 +65,7 @@ async function seed() {
     .update({ virtual_balance: 100000 - spent })
     .eq('id', userId);
   if (balanceError) { console.error('Balance error:', balanceError.message); return; }
-  console.log(`✓ Virtual balance updated to $${100000 - spent}`);
+  console.log(`[ok] Virtual balance updated to $${100000 - spent}`);
 
   console.log('\nSeed complete!');
 }
