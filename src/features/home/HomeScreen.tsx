@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../../core/theme/colors';
@@ -7,6 +7,7 @@ import { computePortfolio } from '../../utils/portfolio';
 import { SectionLabel } from '../../components/SectionLabel';
 import { StockRow } from '../../components/StockRow';
 import { MetricCard } from '../../components/MetricCard';
+import { FinnhubService, Quote } from '../../core/api/finnhubService';
 
 const MOCK_HOLDINGS = [
   { symbol: 'AAPL', shares: 50, avgCost: 182.50 },
@@ -28,6 +29,10 @@ const MOCK_WATCHLIST = ['AAPL', 'MSFT', 'SPY', 'QQQ'];
 const MOCK_CASH = 80_862;
 
 export const HomeScreen: React.FC = () => {
+  const [marketQuote, setMarketQuote] = useState<Quote | null>(null);
+  const [marketLoading, setMarketLoading] = useState(true);
+  const [marketError, setMarketError] = useState<string | null>(null);
+
   const portfolio = computePortfolio(
     MOCK_HOLDINGS,
     MOCK_PRICES,
@@ -35,6 +40,31 @@ export const HomeScreen: React.FC = () => {
   );
 
   const returnColor = priceColor(portfolio.totalReturn);
+
+  useEffect(() => {
+    let active = true;
+
+    FinnhubService.getQuote('AAPL')
+      .then((quote) => {
+        if (!active) return;
+        setMarketQuote(quote);
+        setMarketError(null);
+      })
+      .catch((error: unknown) => {
+        if (!active) return;
+        const message = error instanceof Error ? error.message : 'Unable to load market snapshot';
+        setMarketError(message);
+      })
+      .finally(() => {
+        if (active) {
+          setMarketLoading(false);
+        }
+      });
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -72,6 +102,25 @@ export const HomeScreen: React.FC = () => {
           />
         </View>
       </LinearGradient>
+
+      <View style={styles.section}>
+        <View style={styles.marketCard}>
+          <Text style={styles.marketLabel}>Market Snapshot</Text>
+          <Text style={styles.marketSymbol}>AAPL</Text>
+          {marketLoading ? (
+            <Text testID="market-snapshot-loading" style={styles.marketMeta}>Loading quote...</Text>
+          ) : marketError ? (
+            <Text testID="market-snapshot-error" style={styles.marketError}>{marketError}</Text>
+          ) : marketQuote ? (
+            <View testID="market-snapshot-quote">
+              <Text style={styles.marketPrice}>{fmt.currency(marketQuote.currentPrice)}</Text>
+              <Text style={[styles.marketMeta, { color: priceColor(marketQuote.changePercent) }]}>
+                {fmt.pct(marketQuote.changePercent)}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      </View>
 
       {/* Watchlist */}
       <View style={styles.section}>
@@ -149,6 +198,36 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 8,
     marginBottom: 8,
+  },
+  marketCard: {
+    backgroundColor: colors.ui.card,
+    borderRadius: 12,
+    padding: 16,
+  },
+  marketLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.ui.textSec,
+    marginBottom: 8,
+  },
+  marketSymbol: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.ui.text,
+    marginBottom: 4,
+  },
+  marketPrice: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.ui.text,
+  },
+  marketMeta: {
+    fontSize: 13,
+    color: colors.ui.textSec,
+  },
+  marketError: {
+    fontSize: 13,
+    color: colors.semantic.negative,
   },
   learnCard: {
     backgroundColor: colors.brand.navy,
