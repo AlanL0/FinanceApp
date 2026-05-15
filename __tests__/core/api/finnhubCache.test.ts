@@ -28,5 +28,7 @@ describe('finnhubCache', () => {
   it('uses different TTLs for different endpoints', () => {
     expect(getFinnhubTtl('quote')).toBe(15_000);
     expect(getFinnhubTtl('search')).toBe(300_000);
+    expect(getFinnhubTtl('profile')).toBe(86_400_000);
+    expect(getFinnhubTtl('symbols')).toBe(86_400_000);
   });
 });

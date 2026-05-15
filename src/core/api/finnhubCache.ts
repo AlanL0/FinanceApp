@@ -1,8 +1,10 @@
-export type FinnhubEndpoint = 'quote' | 'search';
+export type FinnhubEndpoint = 'quote' | 'search' | 'profile' | 'symbols';
 
 export const FINNHUB_CACHE_TTL_MS: Record<FinnhubEndpoint, number> = {
   quote: 15_000,
   search: 300_000,
+  profile: 24 * 60 * 60_000,
+  symbols: 24 * 60 * 60_000,
 };
 
 export const FINNHUB_STALE_TTL_MS = 30 * 60_000;
