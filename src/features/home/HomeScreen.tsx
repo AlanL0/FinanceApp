@@ -1,70 +1,295 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { NavigationProp, useNavigation } from '@react-navigation/native';
 import { colors } from '../../core/theme/colors';
 import { fmt, priceColor } from '../../utils/formatters';
-import { computePortfolio } from '../../utils/portfolio';
+import { computePortfolio, Holding as PortfolioHolding, StockPrice } from '../../utils/portfolio';
 import { SectionLabel } from '../../components/SectionLabel';
 import { StockRow } from '../../components/StockRow';
 import { MetricCard } from '../../components/MetricCard';
-import { FinnhubService, Quote } from '../../core/api/finnhubService';
+import { CompanyProfile, FinnhubService, Quote } from '../../core/api/finnhubService';
+import { usePortfolioStore } from '../../stores/portfolioStore';
+import { useWatchlistStore } from '../../stores/watchlistStore';
+import { LivePrice, usePriceStore } from '../../stores/priceStore';
+import { Holding as DatabaseHolding } from '../../core/api/database.types';
+import type { MainTabParamList } from '../../navigation/types';
 
-const MOCK_HOLDINGS = [
-  { symbol: 'AAPL', shares: 50, avgCost: 182.50 },
-  { symbol: 'VTI',  shares: 20, avgCost: 245.00 },
-  { symbol: 'JNJ',  shares: 15, avgCost: 158.20 },
-  { symbol: 'MSFT', shares: 8,  avgCost: 405.00 },
-];
+const MARKET_SNAPSHOT_SYMBOL = 'AAPL';
+const HOME_SYMBOL_LIMIT = 50;
 
-const MOCK_PRICES: Record<string, { price: number; change: number; changePct: number; name: string; sector: string }> = {
-  AAPL: { price: 185.50, change: 1.50,  changePct:  0.82, name: 'Apple Inc',           sector: 'Technology' },
-  MSFT: { price: 412.30, change: -1.40, changePct: -0.34, name: 'Microsoft Corp',       sector: 'Technology' },
-  SPY:  { price: 521.80, change: 0.78,  changePct:  0.15, name: 'S&P 500 ETF',          sector: 'ETF' },
-  QQQ:  { price: 438.20, change: 2.10,  changePct:  0.48, name: 'Invesco QQQ',          sector: 'ETF' },
-  VTI:  { price: 248.00, change: 0.60,  changePct:  0.24, name: 'Vanguard Total Mkt',   sector: 'ETF' },
-  JNJ:  { price: 157.67, change: -0.53, changePct: -0.34, name: 'Johnson & Johnson',    sector: 'Healthcare' },
-};
+interface DisplayPrice {
+  price: number;
+  change: number;
+  changePercent: number;
+}
 
-const MOCK_WATCHLIST = ['AAPL', 'MSFT', 'SPY', 'QQQ'];
-const MOCK_CASH = 80_862;
+function normalizeSymbol(symbol: string): string {
+  return symbol.trim().toUpperCase();
+}
+
+function uniqueLimitedSymbols(symbols: string[]): string[] {
+  return Array.from(new Set(
+    symbols
+      .map(normalizeSymbol)
+      .filter((symbol) => symbol.length > 0),
+  )).slice(0, HOME_SYMBOL_LIMIT);
+}
+
+function toPortfolioHolding(holding: DatabaseHolding): PortfolioHolding {
+  return {
+    symbol: normalizeSymbol(holding.symbol),
+    shares: holding.shares,
+    avgCost: holding.avg_cost_basis,
+  };
+}
+
+function getDisplayPrice(
+  symbol: string,
+  livePrice: LivePrice | undefined,
+  quote: Quote | undefined,
+): DisplayPrice {
+  if (livePrice) {
+    return {
+      price: livePrice.price,
+      change: livePrice.change ?? quote?.change ?? 0,
+      changePercent: livePrice.changePercent ?? quote?.changePercent ?? 0,
+    };
+  }
+
+  if (quote) {
+    return {
+      price: quote.currentPrice,
+      change: quote.change,
+      changePercent: quote.changePercent,
+    };
+  }
+
+  return { price: 0, change: 0, changePercent: 0 };
+}
 
 export const HomeScreen: React.FC = () => {
-  const [marketQuote, setMarketQuote] = useState<Quote | null>(null);
-  const [marketLoading, setMarketLoading] = useState(true);
-  const [marketError, setMarketError] = useState<string | null>(null);
+  const navigation = useNavigation<NavigationProp<MainTabParamList>>();
+  const {
+    holdings,
+    cash,
+    loading: portfolioLoading,
+    error: portfolioError,
+    fetchPortfolio,
+  } = usePortfolioStore();
+  const {
+    symbols: watchlistSymbols,
+    loading: watchlistLoading,
+    error: watchlistError,
+    fetchWatchlist,
+  } = useWatchlistStore();
+  const {
+    pricesBySymbol,
+    error: priceError,
+    connect,
+    disconnect,
+    subscribe,
+    unsubscribe,
+  } = usePriceStore();
+  const subscribedSymbolsRef = useRef<string[]>([]);
+  const quoteRequestsRef = useRef<Set<string>>(new Set());
+  const profileRequestsRef = useRef<Set<string>>(new Set());
+  const [fallbackQuotes, setFallbackQuotes] = useState<Record<string, Quote>>({});
+  const [quoteErrors, setQuoteErrors] = useState<Record<string, string>>({});
+  const [profiles, setProfiles] = useState<Record<string, CompanyProfile>>({});
 
-  const portfolio = computePortfolio(
-    MOCK_HOLDINGS,
-    MOCK_PRICES,
-    MOCK_CASH,
+  const portfolioHoldings = useMemo(
+    () => holdings.map(toPortfolioHolding),
+    [holdings],
   );
 
+  const trackedSymbols = useMemo(
+    () => uniqueLimitedSymbols([
+      ...portfolioHoldings.map((holding) => holding.symbol),
+      ...watchlistSymbols,
+      MARKET_SNAPSHOT_SYMBOL,
+    ]),
+    [portfolioHoldings, watchlistSymbols],
+  );
+
+  const trackedSymbolsKey = trackedSymbols.join('|');
+
+  const pricesForSymbols = useMemo(
+    () => trackedSymbols.reduce<Record<string, DisplayPrice>>((acc, symbol) => {
+      acc[symbol] = getDisplayPrice(symbol, pricesBySymbol[symbol], fallbackQuotes[symbol]);
+      return acc;
+    }, {}),
+    [fallbackQuotes, pricesBySymbol, trackedSymbols],
+  );
+
+  const portfolioPrices = useMemo(
+    () => portfolioHoldings.reduce<Record<string, StockPrice>>((acc, holding) => {
+      const price = pricesForSymbols[holding.symbol] ?? { price: 0, change: 0 };
+      acc[holding.symbol] = {
+        price: price.price,
+        change: price.change,
+      };
+      return acc;
+    }, {}),
+    [portfolioHoldings, pricesForSymbols],
+  );
+
+  const portfolio = computePortfolio(portfolioHoldings, portfolioPrices, cash ?? 0);
   const returnColor = priceColor(portfolio.totalReturn);
+  const aaplLivePrice = pricesBySymbol[MARKET_SNAPSHOT_SYMBOL];
+  const aaplQuote = fallbackQuotes[MARKET_SNAPSHOT_SYMBOL];
+  const aaplPrice = pricesForSymbols[MARKET_SNAPSHOT_SYMBOL];
+  const hasMarketSnapshotPrice = Boolean(aaplLivePrice || aaplQuote);
+  const marketError = quoteErrors[MARKET_SNAPSHOT_SYMBOL];
+  const loading = portfolioLoading || watchlistLoading;
+  const errors = [portfolioError, watchlistError, priceError]
+    .filter((error): error is string => Boolean(error));
+
+  useEffect(() => {
+    void fetchPortfolio();
+    void fetchWatchlist();
+    connect();
+
+    return () => {
+      disconnect();
+    };
+  }, [connect, disconnect, fetchPortfolio, fetchWatchlist]);
+
+  useEffect(() => {
+    const previousSymbols = subscribedSymbolsRef.current;
+    const addedSymbols = trackedSymbols.filter((symbol) => !previousSymbols.includes(symbol));
+    const removedSymbols = previousSymbols.filter((symbol) => !trackedSymbols.includes(symbol));
+
+    if (addedSymbols.length > 0) {
+      subscribe(addedSymbols);
+    }
+
+    if (removedSymbols.length > 0) {
+      unsubscribe(removedSymbols);
+    }
+
+    subscribedSymbolsRef.current = trackedSymbols;
+  }, [subscribe, trackedSymbols, trackedSymbolsKey, unsubscribe]);
+
+  useEffect(() => () => {
+    if (subscribedSymbolsRef.current.length > 0) {
+      unsubscribe(subscribedSymbolsRef.current);
+    }
+  }, [unsubscribe]);
 
   useEffect(() => {
     let active = true;
+    const missingQuoteSymbols = trackedSymbols.filter((symbol) => (
+      !pricesBySymbol[symbol] &&
+      !fallbackQuotes[symbol] &&
+      !quoteErrors[symbol] &&
+      !quoteRequestsRef.current.has(symbol)
+    ));
 
-    FinnhubService.getQuote('AAPL')
-      .then((quote) => {
-        if (!active) return;
-        setMarketQuote(quote);
-        setMarketError(null);
-      })
-      .catch((error: unknown) => {
-        if (!active) return;
-        const message = error instanceof Error ? error.message : 'Unable to load market snapshot';
-        setMarketError(message);
-      })
-      .finally(() => {
-        if (active) {
-          setMarketLoading(false);
+    if (missingQuoteSymbols.length === 0) {
+      return () => {
+        active = false;
+      };
+    }
+
+    missingQuoteSymbols.forEach((symbol) => quoteRequestsRef.current.add(symbol));
+
+    Promise.all(
+      missingQuoteSymbols.map(async (symbol) => {
+        try {
+          const quote = await FinnhubService.getQuote(symbol);
+          return { symbol, quote, error: null };
+        } catch (error) {
+          const message = error instanceof Error ? error.message : 'Unable to load quote';
+          return { symbol, quote: null, error: message };
         }
+      }),
+    ).then((results) => {
+      if (!active) return;
+
+      setFallbackQuotes((currentQuotes) => {
+        const nextQuotes = { ...currentQuotes };
+        results.forEach((result) => {
+          if (result.quote) {
+            nextQuotes[result.symbol] = result.quote;
+          }
+        });
+        return nextQuotes;
       });
+
+      setQuoteErrors((currentErrors) => {
+        const nextErrors = { ...currentErrors };
+        results.forEach((result) => {
+          if (result.error) {
+            nextErrors[result.symbol] = result.error;
+          }
+        });
+        return nextErrors;
+      });
+    }).finally(() => {
+      missingQuoteSymbols.forEach((symbol) => quoteRequestsRef.current.delete(symbol));
+    });
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [fallbackQuotes, pricesBySymbol, quoteErrors, trackedSymbols, trackedSymbolsKey]);
+
+  useEffect(() => {
+    let active = true;
+    const visibleWatchlistSymbols = uniqueLimitedSymbols(watchlistSymbols);
+    const missingProfileSymbols = visibleWatchlistSymbols.filter((symbol) => (
+      !profiles[symbol] && !profileRequestsRef.current.has(symbol)
+    ));
+
+    if (missingProfileSymbols.length === 0) {
+      return () => {
+        active = false;
+      };
+    }
+
+    missingProfileSymbols.forEach((symbol) => profileRequestsRef.current.add(symbol));
+
+    Promise.all(
+      missingProfileSymbols.map(async (symbol) => {
+        try {
+          const profile = await FinnhubService.getCompanyProfile(symbol);
+          return { symbol, profile };
+        } catch {
+          return { symbol, profile: null };
+        }
+      }),
+    ).then((results) => {
+      if (!active) return;
+
+      setProfiles((currentProfiles) => {
+        const nextProfiles = { ...currentProfiles };
+        results.forEach((result) => {
+          if (result.profile) {
+            nextProfiles[result.symbol] = result.profile;
+          }
+        });
+        return nextProfiles;
+      });
+    }).finally(() => {
+      missingProfileSymbols.forEach((symbol) => profileRequestsRef.current.delete(symbol));
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [profiles, watchlistSymbols]);
+
+  const openStock = (symbol: string) => {
+    navigation.navigate('Search', {
+      screen: 'StockDetail',
+      params: { symbol },
+    });
+  };
+
+  const openWatchlist = () => {
+    navigation.navigate('Search', { screen: 'Watchlist', params: { returnToHome: true } });
+  };
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
@@ -92,7 +317,7 @@ export const HomeScreen: React.FC = () => {
           />
           <MetricCard
             label="Cash"
-            value={fmt.currencyWhole(MOCK_CASH)}
+            value={fmt.currencyWhole(cash ?? 0)}
             valueColor={colors.ui.card}
           />
           <MetricCard
@@ -103,19 +328,27 @@ export const HomeScreen: React.FC = () => {
         </View>
       </LinearGradient>
 
+      {loading ? (
+        <Text testID="home-loading" style={styles.statusText}>Loading dashboard...</Text>
+      ) : null}
+
+      {errors.length > 0 ? (
+        <Text testID="home-error" style={styles.errorText}>{errors.join(' · ')}</Text>
+      ) : null}
+
       <View style={styles.section}>
         <View style={styles.marketCard}>
           <Text style={styles.marketLabel}>Market Snapshot</Text>
           <Text style={styles.marketSymbol}>AAPL</Text>
-          {marketLoading ? (
+          {!hasMarketSnapshotPrice && !marketError ? (
             <Text testID="market-snapshot-loading" style={styles.marketMeta}>Loading quote...</Text>
           ) : marketError ? (
             <Text testID="market-snapshot-error" style={styles.marketError}>{marketError}</Text>
-          ) : marketQuote ? (
+          ) : hasMarketSnapshotPrice ? (
             <View testID="market-snapshot-quote">
-              <Text style={styles.marketPrice}>{fmt.currency(marketQuote.currentPrice)}</Text>
-              <Text style={[styles.marketMeta, { color: priceColor(marketQuote.changePercent) }]}>
-                {fmt.pct(marketQuote.changePercent)}
+              <Text style={styles.marketPrice}>{fmt.currency(aaplPrice.price)}</Text>
+              <Text style={[styles.marketMeta, { color: priceColor(aaplPrice.changePercent) }]}>
+                {fmt.pct(aaplPrice.changePercent)}
               </Text>
             </View>
           ) : null}
@@ -124,18 +357,24 @@ export const HomeScreen: React.FC = () => {
 
       {/* Watchlist */}
       <View style={styles.section}>
-        <SectionLabel title="Watchlist" action="See all →" onAction={() => {}} />
-        {MOCK_WATCHLIST.map((symbol) => {
-          const stock = MOCK_PRICES[symbol];
+        <SectionLabel title="Watchlist" action="See all →" onAction={openWatchlist} />
+        {watchlistSymbols.length === 0 ? (
+          <Text testID="home-watchlist-empty" style={styles.emptyText}>No watchlist symbols yet.</Text>
+        ) : watchlistSymbols.map((symbol) => {
+          const normalizedSymbol = normalizeSymbol(symbol);
+          const stockPrice = pricesForSymbols[normalizedSymbol] ?? { price: 0, changePercent: 0 };
+          const profile = profiles[normalizedSymbol];
+
           return (
             <StockRow
-              key={symbol}
-              symbol={symbol}
-              name={stock.name}
-              price={stock.price}
-              changePercent={stock.changePct}
-              sector={stock.sector}
-              onPress={() => {}}
+              key={normalizedSymbol}
+              symbol={normalizedSymbol}
+              name={profile?.name || normalizedSymbol}
+              price={stockPrice.price}
+              changePercent={stockPrice.changePercent}
+              sector={profile?.industry}
+              logoUrl={profile?.logo}
+              onPress={() => openStock(normalizedSymbol)}
             />
           );
         })}
@@ -199,6 +438,18 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 8,
   },
+  statusText: {
+    color: colors.ui.textSec,
+    fontSize: 13,
+    marginHorizontal: 16,
+    marginBottom: 6,
+  },
+  errorText: {
+    color: colors.semantic.negative,
+    fontSize: 13,
+    marginHorizontal: 16,
+    marginBottom: 6,
+  },
   marketCard: {
     backgroundColor: colors.ui.card,
     borderRadius: 12,
@@ -228,6 +479,13 @@ const styles = StyleSheet.create({
   marketError: {
     fontSize: 13,
     color: colors.semantic.negative,
+  },
+  emptyText: {
+    backgroundColor: colors.ui.card,
+    borderRadius: 12,
+    color: colors.ui.textSec,
+    fontSize: 14,
+    padding: 16,
   },
   learnCard: {
     backgroundColor: colors.brand.navy,

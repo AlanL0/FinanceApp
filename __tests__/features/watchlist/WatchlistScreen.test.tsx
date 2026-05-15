@@ -2,19 +2,22 @@ import React from 'react';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { NavigationContainer, RouteProp } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text } from 'react-native';
 import { WatchlistScreen } from '../../../src/features/watchlist/WatchlistScreen';
 import { FinnhubService } from '../../../src/core/api/finnhubService';
-import type { SearchStackParamList } from '../../../src/navigation/types';
+import type { MainTabParamList, SearchStackParamList } from '../../../src/navigation/types';
 
 jest.mock('../../../src/core/api/finnhubService', () => ({
   FinnhubService: {
     getQuote: jest.fn(),
+    getCompanyProfile: jest.fn(),
   },
 }));
 
 const mockFetchWatchlist = jest.fn();
 const mockRemoveSymbol = jest.fn();
+const mockMoveSymbolToIndex = jest.fn();
 
 let mockWatchlistState = {
   symbols: ['AAPL', 'MSFT'],
@@ -22,6 +25,7 @@ let mockWatchlistState = {
   error: null as string | null,
   fetchWatchlist: mockFetchWatchlist,
   removeSymbol: mockRemoveSymbol,
+  moveSymbolToIndex: mockMoveSymbolToIndex,
 };
 
 jest.mock('../../../src/stores/watchlistStore', () => ({
@@ -30,10 +34,14 @@ jest.mock('../../../src/stores/watchlistStore', () => ({
 
 const mockedFinnhubService = FinnhubService as jest.Mocked<typeof FinnhubService>;
 const Stack = createNativeStackNavigator<SearchStackParamList>();
+const Tab = createBottomTabNavigator<MainTabParamList>();
 
 const StockDetailStub = ({ route }: { route: RouteProp<SearchStackParamList, 'StockDetail'> }) => (
   <Text>{route.params.symbol} detail</Text>
 );
+const HomeStub = () => <Text>Home Screen</Text>;
+const SearchHomeStub = () => <Text>Search Home</Text>;
+const PlaceholderStub = () => null;
 
 function renderWatchlistScreen() {
   return render(
@@ -42,6 +50,42 @@ function renderWatchlistScreen() {
         <Stack.Screen name="Watchlist" component={WatchlistScreen} />
         <Stack.Screen name="StockDetail" component={StockDetailStub} />
       </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
+const SearchStackNavigator = () => (
+  <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <Stack.Screen name="SearchHome" component={SearchHomeStub} />
+    <Stack.Screen name="Watchlist" component={WatchlistScreen} />
+    <Stack.Screen name="StockDetail" component={StockDetailStub} />
+  </Stack.Navigator>
+);
+
+function renderNestedWatchlistScreen() {
+  return render(
+    <NavigationContainer
+      initialState={{
+        index: 1,
+        routes: [
+          { name: 'Home' },
+          {
+            name: 'Search',
+            state: {
+              index: 0,
+              routes: [{ name: 'Watchlist' }],
+            },
+          },
+        ],
+      }}
+    >
+      <Tab.Navigator screenOptions={{ headerShown: false }}>
+        <Tab.Screen name="Home" component={HomeStub} />
+        <Tab.Screen name="Search" component={SearchStackNavigator} />
+        <Tab.Screen name="Portfolio" component={PlaceholderStub} />
+        <Tab.Screen name="Learn" component={PlaceholderStub} />
+        <Tab.Screen name="Profile" component={PlaceholderStub} />
+      </Tab.Navigator>
     </NavigationContainer>
   );
 }
@@ -55,6 +99,7 @@ describe('WatchlistScreen', () => {
       error: null,
       fetchWatchlist: mockFetchWatchlist,
       removeSymbol: mockRemoveSymbol,
+      moveSymbolToIndex: mockMoveSymbolToIndex,
     };
     mockFetchWatchlist.mockResolvedValue(undefined);
     mockRemoveSymbol.mockResolvedValue(undefined);
@@ -66,6 +111,14 @@ describe('WatchlistScreen', () => {
       previousClose: 184,
       change: 1.5,
       changePercent: symbol === 'AAPL' ? 0.82 : -0.34,
+    }));
+    mockedFinnhubService.getCompanyProfile.mockImplementation(async (symbol: string) => ({
+      symbol,
+      name: symbol === 'AAPL' ? 'Apple Inc' : 'Microsoft Corp',
+      exchange: 'NASDAQ NMS - GLOBAL MARKET',
+      industry: 'Technology',
+      logo: `https://static.finnhub.io/logo/${symbol.toLowerCase()}.png`,
+      webUrl: `https://www.${symbol.toLowerCase()}.com/`,
     }));
   });
 
@@ -81,7 +134,19 @@ describe('WatchlistScreen', () => {
 
     expect(mockedFinnhubService.getQuote).toHaveBeenCalledWith('AAPL');
     expect(mockedFinnhubService.getQuote).toHaveBeenCalledWith('MSFT');
+    expect(mockedFinnhubService.getCompanyProfile).toHaveBeenCalledWith('AAPL');
+    expect(mockedFinnhubService.getCompanyProfile).toHaveBeenCalledWith('MSFT');
     expect(getByText('$185.50')).toBeTruthy();
+  });
+
+  it('renders company logos in watchlist rows', async () => {
+    const { getByTestId, getByText } = renderWatchlistScreen();
+
+    await waitFor(() => {
+      expect(getByTestId('stock-row-logo-AAPL-image')).toBeTruthy();
+    });
+
+    expect(getByText('Apple Inc')).toBeTruthy();
   });
 
   it('opens stock detail from a row', async () => {
@@ -110,6 +175,37 @@ describe('WatchlistScreen', () => {
     });
 
     expect(mockRemoveSymbol).toHaveBeenCalledWith('AAPL');
+  });
+
+  it('returns to Home when pressing the screen-owned Back button', async () => {
+    const { getByTestId, getByText } = renderNestedWatchlistScreen();
+
+    await waitFor(() => {
+      expect(getByTestId('watchlist-back-button')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('watchlist-back-button'));
+
+    await waitFor(() => {
+      expect(getByText('Home Screen')).toBeTruthy();
+    });
+  });
+
+  it('reorders rows by long pressing, dragging, and releasing', async () => {
+    const { getByTestId, queryByText } = renderWatchlistScreen();
+
+    await waitFor(() => {
+      expect(getByTestId('stock-row-AAPL')).toBeTruthy();
+    });
+
+    fireEvent(getByTestId('stock-row-AAPL'), 'longPress', { nativeEvent: { pageY: 100 } });
+    expect(queryByText('Move up')).toBeNull();
+    expect(queryByText('Move down')).toBeNull();
+
+    fireEvent(getByTestId('watchlist-list'), 'touchMove', { nativeEvent: { pageY: 210 } });
+    expect(mockMoveSymbolToIndex).toHaveBeenCalledWith('AAPL', 1);
+
+    fireEvent(getByTestId('watchlist-list'), 'touchEnd', { nativeEvent: { pageY: 210 } });
   });
 
   it('renders empty and error states', () => {

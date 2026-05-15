@@ -10,6 +10,8 @@ interface WatchlistState {
   fetchWatchlist: () => Promise<void>;
   addSymbol: (symbol: string) => Promise<void>;
   removeSymbol: (symbol: string) => Promise<void>;
+  reorderSymbol: (symbol: string, direction: 'up' | 'down') => void;
+  moveSymbolToIndex: (symbol: string, targetIndex: number) => void;
   clearError: () => void;
   reset: () => void;
 }
@@ -35,6 +37,17 @@ function toReadableError(error: unknown, fallback: string): string {
 
 function symbolsFromItems(items: WatchlistItem[]): string[] {
   return items.map((item) => item.symbol);
+}
+
+function reorderItems(items: WatchlistItem[], fromIndex: number, toIndex: number): WatchlistItem[] {
+  const nextItems = [...items];
+  const [movedItem] = nextItems.splice(fromIndex, 1);
+  nextItems.splice(toIndex, 0, movedItem);
+  return nextItems;
+}
+
+function clampIndex(index: number, length: number): number {
+  return Math.min(Math.max(index, 0), length - 1);
 }
 
 export const useWatchlistStore = create<WatchlistState>((set, get) => ({
@@ -80,6 +93,38 @@ export const useWatchlistStore = create<WatchlistState>((set, get) => ({
     } finally {
       set({ loading: false });
     }
+  },
+
+  reorderSymbol: (symbol, direction) => {
+    const normalizedSymbol = symbol.trim().toUpperCase();
+    const items = get().items;
+    const fromIndex = items.findIndex((item) => item.symbol === normalizedSymbol);
+
+    if (fromIndex < 0) {
+      return;
+    }
+
+    const toIndex = direction === 'up' ? fromIndex - 1 : fromIndex + 1;
+    get().moveSymbolToIndex(normalizedSymbol, toIndex);
+  },
+
+  moveSymbolToIndex: (symbol, targetIndex) => {
+    const normalizedSymbol = symbol.trim().toUpperCase();
+    const items = get().items;
+    const fromIndex = items.findIndex((item) => item.symbol === normalizedSymbol);
+
+    if (fromIndex < 0 || items.length < 2) {
+      return;
+    }
+
+    const toIndex = clampIndex(targetIndex, items.length);
+
+    if (fromIndex === toIndex) {
+      return;
+    }
+
+    const nextItems = reorderItems(items, fromIndex, toIndex);
+    set({ items: nextItems, symbols: symbolsFromItems(nextItems) });
   },
 
   clearError: () => {

@@ -3,6 +3,10 @@ import { render } from '@testing-library/react-native'
 import {NavigationContainer} from "@react-navigation/native";
 import {AppNavigator } from '../../src/navigation/AppNavigator';
 
+jest.mock('../../src/features/home/HomeScreen', () => ({
+    HomeScreen: () => null,
+}));
+
 describe('AppNavigator', () => {
     it('should render all 5 tab labels', () => {
         const {getByText} = render(

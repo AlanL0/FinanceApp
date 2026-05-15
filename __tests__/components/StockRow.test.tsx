@@ -48,4 +48,22 @@ describe('StockRow', () => {
       expect.arrayContaining([expect.objectContaining({ color: '#E24B4A' })])
     );
   });
+
+  it('renders a company logo when a logo URL is provided', () => {
+    const { getByTestId } = render(
+      <StockRow {...defaultProps} logoUrl="https://static.finnhub.io/logo/aapl.png" />
+    );
+
+    expect(getByTestId('stock-row-logo-AAPL-image')).toBeTruthy();
+  });
+
+  it('falls back to ticker initials when the logo fails to load', () => {
+    const { getByTestId } = render(
+      <StockRow {...defaultProps} logoUrl="https://static.finnhub.io/logo/aapl.png" />
+    );
+
+    fireEvent(getByTestId('stock-row-logo-AAPL-image'), 'error');
+
+    expect(getByTestId('stock-row-logo-AAPL-fallback')).toBeTruthy();
+  });
 });

@@ -7,8 +7,9 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useRoute } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import type { RouteProp } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '../../core/theme/colors';
 import { CompanyProfile, FinnhubService, Quote } from '../../core/api/finnhubService';
 import { MetricCard } from '../../components/MetricCard';
@@ -20,6 +21,7 @@ import { CompanyLogo } from './components/CompanyLogo';
 import { PriceChart } from './components/PriceChart';
 
 type StockDetailRoute = RouteProp<SearchStackParamList, 'StockDetail'>;
+type StockDetailNavigation = NativeStackNavigationProp<SearchStackParamList, 'StockDetail'>;
 type ChartRange = '1D' | '1W' | '1M' | '3M' | '1Y';
 
 const RANGE_OPTIONS: { value: ChartRange; label: string }[] = [
@@ -62,6 +64,7 @@ function quoteErrorMessage(error: unknown): string {
 }
 
 export const StockDetailScreen: React.FC = () => {
+  const navigation = useNavigation<StockDetailNavigation>();
   const route = useRoute<StockDetailRoute>();
   const symbol = normalizeSymbol(route.params.symbol);
   const description = route.params.description ?? symbol;
@@ -146,6 +149,19 @@ export const StockDetailScreen: React.FC = () => {
 
   return (
     <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+      <View style={styles.navHeader}>
+        <Pressable
+          accessibilityLabel="Back"
+          accessibilityRole="button"
+          hitSlop={10}
+          onPress={() => navigation.goBack()}
+          style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+          testID="stock-detail-back-button"
+        >
+          <Text style={styles.backText}>Back</Text>
+        </Pressable>
+      </View>
+
       <View style={styles.header}>
         <CompanyLogo
           symbol={symbol}
@@ -252,8 +268,25 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ui.bg,
   },
   content: {
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingTop: 48,
     paddingBottom: 32,
+  },
+  navHeader: {
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  backButton: {
+    paddingHorizontal: 2,
+    paddingVertical: 8,
+  },
+  backButtonPressed: {
+    opacity: 0.55,
+  },
+  backText: {
+    color: colors.brand.teal,
+    fontSize: 16,
+    fontWeight: '600',
   },
   header: {
     alignItems: 'center',

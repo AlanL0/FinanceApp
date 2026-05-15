@@ -83,6 +83,44 @@ describe('watchlistStore', () => {
     expect(result.current.loading).toBe(false);
   });
 
+  it('reorders symbols locally', () => {
+    const appleItem = makeWatchlistItem('AAPL');
+    const microsoftItem = makeWatchlistItem('MSFT');
+    const teslaItem = makeWatchlistItem('TSLA');
+    useWatchlistStore.setState({
+      items: [appleItem, microsoftItem, teslaItem],
+      symbols: ['AAPL', 'MSFT', 'TSLA'],
+    });
+
+    const { result } = renderHook(() => useWatchlistStore());
+    act(() => { result.current.reorderSymbol(' msft ', 'up'); });
+
+    expect(result.current.items).toEqual([microsoftItem, appleItem, teslaItem]);
+    expect(result.current.symbols).toEqual(['MSFT', 'AAPL', 'TSLA']);
+
+    act(() => { result.current.reorderSymbol('MSFT', 'up'); });
+    expect(result.current.symbols).toEqual(['MSFT', 'AAPL', 'TSLA']);
+  });
+
+  it('moves a symbol directly to a target index', () => {
+    const appleItem = makeWatchlistItem('AAPL');
+    const microsoftItem = makeWatchlistItem('MSFT');
+    const teslaItem = makeWatchlistItem('TSLA');
+    useWatchlistStore.setState({
+      items: [appleItem, microsoftItem, teslaItem],
+      symbols: ['AAPL', 'MSFT', 'TSLA'],
+    });
+
+    const { result } = renderHook(() => useWatchlistStore());
+    act(() => { result.current.moveSymbolToIndex('AAPL', 2); });
+
+    expect(result.current.items).toEqual([microsoftItem, teslaItem, appleItem]);
+    expect(result.current.symbols).toEqual(['MSFT', 'TSLA', 'AAPL']);
+
+    act(() => { result.current.moveSymbolToIndex('AAPL', 99); });
+    expect(result.current.symbols).toEqual(['MSFT', 'TSLA', 'AAPL']);
+  });
+
   it('sets readable error on service failure and clears loading', async () => {
     mockWatchlistService.getWatchlist.mockRejectedValue(new Error('Watchlist unavailable'));
 

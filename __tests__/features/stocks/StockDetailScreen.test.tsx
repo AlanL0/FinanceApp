@@ -2,6 +2,8 @@ import React from 'react';
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { Pressable, Text } from 'react-native';
 import { StockDetailScreen } from '../../../src/features/stocks/StockDetailScreen';
 import { FinnhubService } from '../../../src/core/api/finnhubService';
 import type { SearchStackParamList } from '../../../src/navigation/types';
@@ -32,6 +34,20 @@ jest.mock('../../../src/stores/watchlistStore', () => ({
 
 const mockedFinnhubService = FinnhubService as jest.Mocked<typeof FinnhubService>;
 const Stack = createNativeStackNavigator<SearchStackParamList>();
+type WatchlistNavigation = NativeStackNavigationProp<SearchStackParamList, 'Watchlist'>;
+
+const WatchlistStarter = ({ navigation }: { navigation: WatchlistNavigation }) => (
+  <>
+    <Text>Watchlist Screen</Text>
+    <Pressable
+      accessibilityRole="button"
+      onPress={() => navigation.navigate('StockDetail', { symbol: 'AAPL', description: 'Apple Inc' })}
+      testID="open-stock-detail"
+    >
+      <Text>Open AAPL</Text>
+    </Pressable>
+  </>
+);
 
 function renderStockDetail(initialParams = { symbol: 'AAPL', description: 'Apple Inc' }) {
   return render(
@@ -42,6 +58,17 @@ function renderStockDetail(initialParams = { symbol: 'AAPL', description: 'Apple
           component={StockDetailScreen}
           initialParams={initialParams}
         />
+      </Stack.Navigator>
+    </NavigationContainer>
+  );
+}
+
+function renderStockDetailFromWatchlist() {
+  return render(
+    <NavigationContainer>
+      <Stack.Navigator screenOptions={{ headerShown: false }}>
+        <Stack.Screen name="Watchlist" component={WatchlistStarter} />
+        <Stack.Screen name="StockDetail" component={StockDetailScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
@@ -132,6 +159,22 @@ describe('StockDetailScreen', () => {
     });
 
     expect(mockRemoveSymbol).toHaveBeenCalledWith('AAPL');
+  });
+
+  it('returns to the previous screen from the screen-owned Back button', async () => {
+    const { getByTestId, getByText } = renderStockDetailFromWatchlist();
+
+    fireEvent.press(getByTestId('open-stock-detail'));
+
+    await waitFor(() => {
+      expect(getByTestId('stock-detail-back-button')).toBeTruthy();
+    });
+
+    fireEvent.press(getByTestId('stock-detail-back-button'));
+
+    await waitFor(() => {
+      expect(getByText('Watchlist Screen')).toBeTruthy();
+    });
   });
 
   it('renders quote errors', async () => {

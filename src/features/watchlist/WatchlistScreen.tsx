@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -7,37 +7,59 @@ import {
   Text,
   View,
 } from 'react-native';
+import type { GestureResponderEvent } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import type { NavigationProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors } from '../../core/theme/colors';
-import { FinnhubService, Quote } from '../../core/api/finnhubService';
+import { CompanyProfile, FinnhubService, Quote } from '../../core/api/finnhubService';
 import { StockRow } from '../../components/StockRow';
 import { useWatchlistStore } from '../../stores/watchlistStore';
-import type { SearchStackParamList } from '../../navigation/types';
+import type { MainTabParamList, SearchStackParamList } from '../../navigation/types';
 
 type WatchlistNavigation = NativeStackNavigationProp<SearchStackParamList, 'Watchlist'>;
+const WATCHLIST_REORDER_ROW_HEIGHT = 96;
 
 interface QuoteResult {
   symbol: string;
   quote: Quote | null;
 }
 
+interface ProfileResult {
+  symbol: string;
+  profile: CompanyProfile | null;
+}
+
 export const WatchlistScreen: React.FC = () => {
   const navigation = useNavigation<WatchlistNavigation>();
-  const { symbols, loading, error, fetchWatchlist, removeSymbol } = useWatchlistStore();
+  const { symbols, loading, error, fetchWatchlist, removeSymbol, moveSymbolToIndex } = useWatchlistStore();
   const [quotes, setQuotes] = useState<Record<string, Quote>>({});
+  const [profiles, setProfiles] = useState<Record<string, CompanyProfile>>({});
   const [quotesLoading, setQuotesLoading] = useState(false);
   const [quotesError, setQuotesError] = useState<string | null>(null);
+  const [draggingSymbol, setDraggingSymbol] = useState<string | null>(null);
+  const dragStateRef = useRef<{
+    symbol: string;
+    startIndex: number;
+    currentIndex: number;
+    startY: number;
+  } | null>(null);
+  const symbolsRef = useRef(symbols);
 
   useEffect(() => {
     void fetchWatchlist();
   }, [fetchWatchlist]);
 
   useEffect(() => {
+    symbolsRef.current = symbols;
+  }, [symbols]);
+
+  useEffect(() => {
     let active = true;
 
     if (symbols.length === 0) {
       setQuotes({});
+      setProfiles({});
       setQuotesLoading(false);
       setQuotesError(null);
       return () => {
@@ -85,12 +107,116 @@ export const WatchlistScreen: React.FC = () => {
     };
   }, [symbols]);
 
+  useEffect(() => {
+    let active = true;
+
+    if (symbols.length === 0) {
+      setProfiles({});
+      return () => {
+        active = false;
+      };
+    }
+
+    Promise.all(
+      symbols.map(async (symbol): Promise<ProfileResult> => {
+        try {
+          const profile = await FinnhubService.getCompanyProfile(symbol);
+          return { symbol, profile };
+        } catch {
+          return { symbol, profile: null };
+        }
+      }),
+    ).then((results) => {
+      if (!active) return;
+
+      const nextProfiles = results.reduce<Record<string, CompanyProfile>>((acc, result) => {
+        if (result.profile) {
+          acc[result.symbol] = result.profile;
+        }
+        return acc;
+      }, {});
+
+      setProfiles(nextProfiles);
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [symbols]);
+
   const openStock = (symbol: string) => {
     navigation.navigate('StockDetail', { symbol });
   };
 
+  const goBack = () => {
+    const tabNavigation = navigation.getParent<NavigationProp<MainTabParamList>>();
+
+    if (tabNavigation) {
+      tabNavigation.navigate('Home');
+      return;
+    }
+
+    navigation.goBack();
+  };
+
+  const clampDragIndex = (index: number) => (
+    Math.min(Math.max(index, 0), symbolsRef.current.length - 1)
+  );
+
+  const beginReorder = (symbol: string, index: number, event: GestureResponderEvent) => {
+    dragStateRef.current = {
+      symbol,
+      startIndex: index,
+      currentIndex: index,
+      startY: event.nativeEvent.pageY,
+    };
+    setDraggingSymbol(symbol);
+  };
+
+  const finishReorder = () => {
+    dragStateRef.current = null;
+    setDraggingSymbol(null);
+  };
+
+  const updateReorder = (event: GestureResponderEvent) => {
+    const dragState = dragStateRef.current;
+
+    if (!dragState) {
+      return;
+    }
+
+    const dragOffset = event.nativeEvent.pageY - dragState.startY;
+    const nextIndex = clampDragIndex(
+      dragState.startIndex + Math.round(dragOffset / WATCHLIST_REORDER_ROW_HEIGHT),
+    );
+
+    if (nextIndex === dragState.currentIndex) {
+      return;
+    }
+
+    moveSymbolToIndex(dragState.symbol, nextIndex);
+    dragState.currentIndex = nextIndex;
+  };
+
   return (
-    <ScrollView style={styles.screen} contentContainerStyle={styles.content}>
+    <ScrollView
+      scrollEnabled={!draggingSymbol}
+      style={styles.screen}
+      contentContainerStyle={styles.content}
+    >
+      <View style={styles.header}>
+        <Pressable
+          accessibilityLabel="Back"
+          accessibilityRole="button"
+          hitSlop={10}
+          onPress={goBack}
+          style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+          testID="watchlist-back-button"
+        >
+          <Text style={styles.backText}>Back</Text>
+        </Pressable>
+      </View>
+
       <Text style={styles.title}>Watchlist</Text>
 
       {loading ? (
@@ -103,23 +229,38 @@ export const WatchlistScreen: React.FC = () => {
       ) : symbols.length === 0 ? (
         <Text testID="watchlist-empty" style={styles.statePanelText}>No symbols in your watchlist yet.</Text>
       ) : (
-        <View style={styles.list}>
+        <View
+          onTouchCancel={finishReorder}
+          onTouchEnd={finishReorder}
+          onTouchMove={updateReorder}
+          style={styles.list}
+          testID="watchlist-list"
+        >
           {quotesLoading ? (
             <Text testID="watchlist-quotes-loading" style={styles.statePanelText}>Loading quotes...</Text>
           ) : null}
           {quotesError ? (
             <Text testID="watchlist-quotes-error" style={styles.inlineError}>{quotesError}</Text>
           ) : null}
-          {symbols.map((symbol) => {
+          {symbols.map((symbol, index) => {
             const quote = quotes[symbol];
+            const profile = profiles[symbol];
+            const isDragging = draggingSymbol === symbol;
             return (
-              <View key={symbol} style={styles.rowShell}>
+              <View
+                key={symbol}
+                style={[styles.rowShell, isDragging && styles.draggingRow]}
+                testID={`watchlist-draggable-${symbol}`}
+              >
                 <StockRow
                   symbol={symbol}
-                  name={symbol}
+                  name={profile?.name || symbol}
                   price={quote?.currentPrice ?? 0}
                   changePercent={quote?.changePercent ?? 0}
+                  sector={profile?.industry}
+                  logoUrl={profile?.logo}
                   onPress={() => openStock(symbol)}
+                  onLongPress={(event) => beginReorder(symbol, index, event)}
                 />
                 <Pressable
                   accessibilityRole="button"
@@ -146,6 +287,25 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     paddingBottom: 32,
+    paddingTop: 48,
+  },
+  header: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  backButton: {
+    paddingHorizontal: 2,
+    paddingVertical: 8,
+  },
+  backButtonPressed: {
+    opacity: 0.55,
+  },
+  backText: {
+    color: colors.brand.teal,
+    fontSize: 16,
+    fontWeight: '600',
   },
   title: {
     color: colors.ui.text,
@@ -186,6 +346,10 @@ const styles = StyleSheet.create({
   rowShell: {
     borderBottomColor: colors.ui.border,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  draggingRow: {
+    backgroundColor: colors.ui.bg,
+    opacity: 0.88,
   },
   removeButton: {
     alignSelf: 'flex-end',

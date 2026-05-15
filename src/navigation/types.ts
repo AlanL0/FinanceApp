@@ -6,7 +6,7 @@ export type SearchStackParamList = {
     symbol: string;
     description?: string;
   };
-  Watchlist: undefined;
+  Watchlist: { returnToHome?: boolean } | undefined;
 };
 
 export type MainTabParamList = {
